@@ -15,13 +15,15 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 /**
  * Global shortcuts. State is read at key time through the store rather than
- * subscribed to, so this hook never causes a render.
+ * subscribed to, so this hook never causes a render. Only enabled while the
+ * canvas is visible, so keys never change blocks the user can't see.
  */
-export function useKeyboardShortcuts() {
+export function useKeyboardShortcuts({ enabled }: { enabled: boolean }) {
   const store = useBuilderStore();
   const commands = useCommands();
 
   useEffect(() => {
+    if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isTypingTarget(e.target) || document.querySelector('dialog[open]')) return;
       const mod = e.metaKey || e.ctrlKey;
@@ -60,5 +62,5 @@ export function useKeyboardShortcuts() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [store, commands]);
+  }, [enabled, store, commands]);
 }

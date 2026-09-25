@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import type { Frame } from '../types/block';
-import { GRID_COLUMNS, MAX_ROWS, ROW_HEIGHT } from '../utils/constants';
+import { GRID_COLUMNS, ROW_HEIGHT } from '../utils/constants';
+import { dragTarget, pixelsToCells, type DragMode } from '../utils/drag';
 
-export type DragMode = 'move' | 'resize';
+export type { DragMode };
 
 interface Options {
   frame: Frame;
@@ -10,16 +11,18 @@ interface Options {
   onResize: (w: number, h: number) => void;
 }
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
 /**
  * Pointer-driven move/resize on the 12-column grid.
  *
  * While the pointer is down nothing goes through React: the element is moved
- * by writing `transform` (move) or its grid span (resize) directly, at most
+ * by writing `transform` (move) or `width`/`height` (resize) directly, at most
  * once per animation frame. The store receives a single action on release,
  * so a drag costs zero React renders until it commits, however many blocks
  * are on the board.
+ *
+ * The hook only writes style properties React never sets (its grid placement
+ * comes from state), so cleanup can simply clear them without ever putting a
+ * stale value back over what React rendered.
  */
 export function useGridDrag(elementRef: RefObject<HTMLElement | null>, { frame, onMove, onResize }: Options) {
   // Latest values via refs so the returned handler is stable and a drag in
@@ -31,6 +34,13 @@ export function useGridDrag(elementRef: RefObject<HTMLElement | null>, { frame, 
 
   const cancelActive = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelActive.current?.(), []);
+
+  // If the block changes from elsewhere mid-drag (keyboard nudge, undo), that
+  // change wins: drop the drag instead of overwriting it from a stale origin.
+  // A normal drop clears cancelActive before dispatching, so this is a no-op then.
+  useEffect(() => {
+    cancelActive.current?.();
+  }, [frame.x, frame.y, frame.w, frame.h]);
 
   return useCallback(
     (event: ReactPointerEvent, mode: DragMode) => {
@@ -45,30 +55,14 @@ export function useGridDrag(elementRef: RefObject<HTMLElement | null>, { frame, 
       const startX = event.clientX;
       const startY = event.clientY;
       const pointerId = event.pointerId;
-      const initialGridColumn = el.style.gridColumn;
-      const initialGridRow = el.style.gridRow;
 
       let target = { ...origin };
       let pending: { x: number; y: number } | null = null;
       let raf = 0;
 
       const compute = (clientX: number, clientY: number) => {
-        const dc = Math.round((clientX - startX) / colWidth);
-        const dr = Math.round((clientY - startY) / ROW_HEIGHT);
-        // Clamping here keeps the preview inside the board, so dragging
-        // out of bounds pins the block to the edge instead of losing it.
-        target =
-          mode === 'move'
-            ? {
-                ...origin,
-                x: clamp(origin.x + dc, 0, GRID_COLUMNS - origin.w),
-                y: clamp(origin.y + dr, 0, MAX_ROWS - origin.h),
-              }
-            : {
-                ...origin,
-                w: clamp(origin.w + dc, 1, GRID_COLUMNS - origin.x),
-                h: clamp(origin.h + dr, 1, MAX_ROWS - origin.y),
-              };
+        const { dc, dr } = pixelsToCells(clientX - startX, clientY - startY, colWidth, ROW_HEIGHT);
+        target = dragTarget(origin, dc, dr, mode);
       };
 
       const paint = () => {
@@ -81,8 +75,8 @@ export function useGridDrag(elementRef: RefObject<HTMLElement | null>, { frame, 
           const dy = (target.y - origin.y) * ROW_HEIGHT;
           el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
         } else {
-          el.style.gridColumn = `${target.x + 1} / span ${target.w}`;
-          el.style.gridRow = `${target.y + 1} / span ${target.h}`;
+          el.style.width = `${target.w * colWidth}px`;
+          el.style.height = `${target.h * ROW_HEIGHT}px`;
         }
       };
 
@@ -100,11 +94,11 @@ export function useGridDrag(elementRef: RefObject<HTMLElement | null>, { frame, 
         el.removeEventListener('lostpointercapture', cancel);
         window.removeEventListener('keydown', onKeyDown);
         if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
-        // Hand the element back to React in its original state; if the drop
-        // changed the frame, the store update re-renders it in the new cell.
+        // Clear only what this hook set; if the drop changed the frame, the
+        // store update re-renders the block in its new cell.
         el.style.transform = '';
-        el.style.gridColumn = initialGridColumn;
-        el.style.gridRow = initialGridRow;
+        el.style.width = '';
+        el.style.height = '';
         el.removeAttribute('data-dragging');
         cancelActive.current = null;
       };

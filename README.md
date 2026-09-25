@@ -30,7 +30,7 @@ No environment variables or API keys are needed.
 - **Properties panel:** content, colours, font size, alignment, image fit, link, corner radius, plus position/size, stacking order, duplicate and delete. Changes show up live.
 - **Save / load:** autosaves to `localStorage` (debounced), exports to a `.json` file, imports from a file or pasted JSON.
 - **Undo / redo:** toolbar buttons or `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z`. Typing in a field counts as one undo step.
-- **Keyboard:** arrows move the selected block, `Shift`+arrows resize it, `Delete` removes it, `Ctrl/⌘+D` duplicates it.
+- **Keyboard:** arrows move the selected block, `Shift`+arrows resize it, `Delete` removes it, `Ctrl/⌘+D` duplicates it. Shortcuts only work in Edit mode, so they never change blocks you can't see.
 - **Preview:** renders the output with desktop / tablet / mobile widths. Below 600px the layout stacks into one column in reading order.
 - **+500 blocks:** fills the canvas for performance testing.
 
@@ -91,6 +91,8 @@ State is the only source of truth. The canvas, preview and properties panel all 
 - While the pointer is down, the block is moved by writing `transform` directly to its DOM node, at most once per animation frame. React doesn't render at all during the drag.
 - On release the store gets **one** `move` or `resize` action. Only that block's object is replaced, so only that block re-renders.
 - Pointer capture keeps fast drags and drags outside the window attached to the block. `pointercancel`, a lost capture or `Esc` restores the original position.
+- The hook only writes style properties React never sets (`transform` for move, `width`/`height` for resize), so ending a drag can't put a stale value back over what React rendered. If the block changes from elsewhere mid-drag (a keyboard nudge, undo), the drag is cancelled and that change wins.
+- The grid maths (`utils/drag.ts`) is a pure function with its own unit tests.
 - It works the same with mouse, touch and pen. Unselected blocks keep `touch-action: pan-y` so the canvas still scrolls on phones; a selected block takes over touch gestures.
 
 Adding from the palette uses native HTML5 drag and drop with a custom MIME type, and there's a click-to-add fallback for touch and keyboard.
@@ -121,7 +123,9 @@ I also ran a drag test against the production build in headless Chrome, with 501
 | 2 | 0* | 16.7 ms | 16.7 ms |
 | 3 | 0* | 16.7 ms | 16.7 ms |
 
-\*Two mutations were recorded in each run, both from the selection change on `pointerdown` (the previous block losing its outline and resize handle). None happened while the pointer was moving. Run 1 also had one 83 ms frame when the drag started (the first selection render); every other frame was on the 60 fps budget.
+\*Two mutations were recorded in each run, both from the selection change on `pointerdown` (the previous block losing its outline and resize handle). None happened while the pointer was moving. The slowest frame in any run was 16.8 ms.
+
+At the 2,000-block limit, a keystroke in the properties panel (store update plus render) took a median of 3.6 ms, a keyboard move 1.1 ms, and no long tasks were recorded while typing or autosaving.
 
 To reproduce it by hand: click **+500 blocks**, open React DevTools → Profiler, turn on "Highlight updates", and drag a block. Nothing flashes until you release, and then only the moved block does.
 
@@ -147,7 +151,10 @@ To reproduce it by hand: click **+500 blocks**, open React DevTools → Profiler
 | Partly valid import | Valid blocks load; skipped count shown |
 | Block dragged out of bounds | Clamped to the board edge during the drag and on drop |
 | Rapid drag operations | One drag at a time; extra pointers and secondary buttons ignored; drag state cleaned up on cancel, lost capture or unmount |
-| Reloading | Layout restored from `localStorage` and validated like an import; corrupt storage is ignored with a notice |
+| Reloading | Layout restored from `localStorage` and validated like an import. If it can't be restored, the raw data is copied to a backup key before autosave can overwrite it |
+| Block limit (2,000) | Enforced on every add, not only on import, so anything you can build or export loads back; a notice explains when a block is refused |
+| Typing a URL and clicking away | A valid pending URL is saved even though clicking another block removes the field before it loses focus |
+| Keys pressed in Preview | Ignored; shortcuts only act while the canvas is visible |
 | Storage unavailable or full | "Couldn't save to this browser" status; the app keeps working |
 | Broken image URL | Placeholder shown instead of a broken image |
 
@@ -159,11 +166,15 @@ npm test
 
 - `utils/validate.test.ts`: sanitisers, malicious and malformed imports, prototype pollution, clamping, id handling, serialization round trip, export allowlist.
 - `state/store.test.ts`: object identity after updates, no-op handling, clamping, undo/redo, merging of rapid edits, sanitised patches, selection cleanup, reordering.
+- `utils/drag.test.ts`: drag and resize maths, clamping, snapping.
 - `components/Canvas.test.tsx`: render isolation, XSS rendering, empty state, foreign drops.
+- `components/PropertiesPanel.test.tsx`: pending URLs survive a selection change; unsafe URLs are still never saved.
+- `App.test.tsx`: keyboard shortcuts act in Edit mode and are ignored in Preview.
+- `state/store.test.ts` also checks that a layout at the block limit round-trips through export and import, and that unreadable saves are backed up.
 
 ## Known limitations and next steps
 
 - Containers are visual backgrounds. Blocks sit on top of them but aren't nested inside, so moving a container doesn't move its contents. Nesting would turn the layout into a tree and needs group drag.
 - Blocks can overlap. That's intentional for layering, but there are no collision rules or alignment guides beyond grid snapping.
 - There's no multi-select.
-- The drag engine itself isn't covered by automated tests, because jsdom doesn't implement pointer capture. A Playwright test would be the next step.
+- The drag maths is unit-tested, but the pointer handling isn't, because jsdom doesn't implement pointer capture. A Playwright test would be the next step.

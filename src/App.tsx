@@ -9,7 +9,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 export default function App() {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
-  useKeyboardShortcuts();
+  useKeyboardShortcuts({ enabled: mode === 'edit' });
 
   return (
     <div className="app">
