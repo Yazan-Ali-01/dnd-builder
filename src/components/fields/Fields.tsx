@@ -1,4 +1,4 @@
-import { memo, useId, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { memo, useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react';
 
 interface FieldShellProps {
   label: string;
@@ -62,8 +62,9 @@ interface UrlFieldProps {
 }
 
 /**
- * URLs are edited as a local draft and only committed on blur/Enter once they
- * pass the protocol allowlist. A rejected value never reaches state.
+ * URLs are edited as a local draft and committed on blur, Enter, or when the
+ * field unmounts, and only once they pass the protocol allowlist. A rejected
+ * value never reaches state.
  */
 export const UrlField = memo(function UrlField({ name, label, value, placeholder, sanitize, onCommit, hint }: UrlFieldProps) {
   const id = useId();
@@ -97,6 +98,24 @@ export const UrlField = memo(function UrlField({ name, label, value, placeholder
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') commit();
   };
+
+  const latest = useRef({ draft, value, name, sanitize, onCommit });
+  useEffect(() => {
+    latest.current = { draft, value, name, sanitize, onCommit };
+  });
+
+  // Selecting another block (or the canvas) happens on pointerdown, which
+  // unmounts this field before its input fires blur. Commit a valid pending
+  // draft here so it isn't silently dropped. onCommit is still the handler
+  // from the last render, so it targets the block being deselected.
+  useEffect(
+    () => () => {
+      const { draft, value, name, sanitize, onCommit } = latest.current;
+      const safe = sanitize(draft.trim());
+      if (safe && safe !== value) onCommit(name, safe);
+    },
+    [],
+  );
 
   return (
     <FieldShell label={label} htmlFor={id} error={error}>
