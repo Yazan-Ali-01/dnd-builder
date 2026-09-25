@@ -2,6 +2,8 @@
 
 A small page builder built with React, TypeScript and Vite. You add blocks (text, image, button, container) from a palette, drag them around a 12-column grid, resize them, edit them in a properties panel, and save or load the layout as JSON.
 
+![Page builder with the block palette, grid canvas and properties panel](docs/screenshot.png)
+
 ## Getting started
 
 Requires Node 20.19+ or 22.12+ (a Vite 8 requirement).
