@@ -7,6 +7,9 @@ import { parseLayout, type ParseResult } from './validate';
 // its contents can be edited by anyone, so reads go through the same
 // validator as imported files.
 
+/** Where an unreadable saved layout is kept so autosave can't overwrite the only copy. */
+export const BACKUP_KEY = `${STORAGE_KEY}:unrestorable`;
+
 export function loadStoredLayout(): ParseResult | null {
   let text: string | null;
   try {
@@ -14,7 +17,16 @@ export function loadStoredLayout(): ParseResult | null {
   } catch {
     return null;
   }
-  return text === null ? null : parseLayout(text);
+  if (text === null) return null;
+  const result = parseLayout(text);
+  if (!result.ok) {
+    try {
+      localStorage.setItem(BACKUP_KEY, text);
+    } catch {
+      // Storage full or blocked; the restore notice still tells the user.
+    }
+  }
+  return result;
 }
 
 export function saveStoredLayout(layout: Layout): boolean {

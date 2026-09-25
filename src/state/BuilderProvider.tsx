@@ -13,7 +13,7 @@ function restoreFromStorage(): { layout: Layout; notices: Notice[] } {
   if (!stored.ok) {
     return {
       layout: emptyLayout(),
-      notices: [{ id: 1, kind: 'error', text: `Saved layout couldn't be restored: ${stored.error}` }],
+      notices: [{ id: 1, kind: 'error', text: `Saved layout couldn't be restored (a backup copy was kept): ${stored.error}` }],
     };
   }
   const notices: Notice[] = stored.skipped

@@ -1,6 +1,7 @@
 export const GRID_COLUMNS = 12;
 export const ROW_HEIGHT = 40;
-export const MAX_ROWS = 400;
+// Tall enough for MAX_BLOCKS stacked two rows high, four per row.
+export const MAX_ROWS = 1200;
 /** Empty rows kept below the lowest block so there is always room to drop. */
 export const CANVAS_PADDING_ROWS = 6;
 export const MIN_CANVAS_ROWS = 16;

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Layout } from '../types/block';
-import { createBlock } from '../utils/helpers';
+import { MAX_BLOCKS, STORAGE_KEY } from '../utils/constants';
+import { createBlock, emptyLayout } from '../utils/helpers';
+import { layoutToJson } from '../utils/serialize';
+import { BACKUP_KEY, loadStoredLayout } from '../utils/storage';
+import { parseLayout } from '../utils/validate';
+import { createCommands } from './commands';
 import { createBuilderStore } from './store';
 
 function setup() {
@@ -90,5 +95,38 @@ describe('builder store', () => {
     const before = store.getState().layout;
     store.dispatch({ type: 'reorder', id: a.id, direction: 'front' });
     expect(store.getState().layout).toBe(before);
+  });
+});
+
+describe('layout limits', () => {
+  it('any layout the store can produce loads back through parseLayout', () => {
+    const store = createBuilderStore(emptyLayout());
+    const commands = createCommands(store);
+    for (let i = 0; i < 5; i++) commands.addStressBlocks(500);
+    commands.addBlock('text');
+    const { layout } = store.getState();
+    expect(layout.order).toHaveLength(MAX_BLOCKS);
+
+    const result = parseLayout(layoutToJson(layout));
+    expect(result.ok).toBe(true);
+    // Every block got its own cell instead of piling onto the last row.
+    const cells = new Set(layout.order.map((id) => `${layout.blocks[id].x}:${layout.blocks[id].y}`));
+    expect(cells.size).toBe(MAX_BLOCKS);
+  });
+
+  it('refuses duplicates at the limit and tells the user', () => {
+    const store = createBuilderStore(emptyLayout());
+    const commands = createCommands(store);
+    commands.addStressBlocks(MAX_BLOCKS);
+    commands.duplicate(store.getState().layout.order[0]);
+    expect(store.getState().layout.order).toHaveLength(MAX_BLOCKS);
+    expect(store.getState().notices.at(-1)?.text).toMatch(/limit reached/i);
+  });
+
+  it('keeps a backup of a saved layout it cannot restore', () => {
+    const unreadable = JSON.stringify({ version: 99, blocks: [] });
+    localStorage.setItem(STORAGE_KEY, unreadable);
+    expect(loadStoredLayout()).toMatchObject({ ok: false });
+    expect(localStorage.getItem(BACKUP_KEY)).toBe(unreadable);
   });
 });

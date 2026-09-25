@@ -1,6 +1,6 @@
 import { BLOCK_TYPES, type Block, type BlockType, type Frame, type PropsOf } from '../types/block';
-import { GRID_COLUMNS } from '../utils/constants';
-import { bottomRow, createBlock, createId } from '../utils/helpers';
+import { GRID_COLUMNS, MAX_BLOCKS } from '../utils/constants';
+import { bottomRow, clampFrame, createBlock, createId } from '../utils/helpers';
 import type { ParseResult } from '../utils/validate';
 import type { Notice, ReorderDirection } from './actions';
 import type { BuilderStore } from './store';
@@ -14,20 +14,32 @@ export function createCommands(store: BuilderStore) {
   const { dispatch, getState } = store;
   const notify = (kind: Notice['kind'], text: string) => dispatch({ type: 'notify', kind, text });
 
+  /** Free block slots; reports the limit to the user when there are none. */
+  const roomFor = (): number => {
+    const room = MAX_BLOCKS - getState().layout.order.length;
+    if (room <= 0) notify('error', `Block limit reached (${MAX_BLOCKS}). Delete some blocks to add more.`);
+    return room;
+  };
+
   return {
     addBlock(type: BlockType, position?: Pick<Frame, 'x' | 'y'>) {
+      if (roomFor() <= 0) return;
       const at = position ?? { x: 0, y: bottomRow(getState().layout) };
       dispatch({ type: 'add', blocks: [createBlock(type, at)] });
     },
 
     /** Fills the canvas with many blocks in one history step, for profiling. */
-    addStressBlocks(count: number) {
+    addStressBlocks(requested: number) {
+      const count = Math.min(requested, roomFor());
+      if (count <= 0) return;
       const start = bottomRow(getState().layout);
       const blocks: Block[] = [];
       for (let i = 0; i < count; i++) {
         const type = BLOCK_TYPES[i % BLOCK_TYPES.length];
-        const block = createBlock(type, { x: (i % 4) * 3, y: start + Math.floor(i / 4) * 2 });
-        blocks.push({ ...block, w: GRID_COLUMNS / 4, h: 2 });
+        // Clamp the final frame, not the type's default size: a full-width
+        // container would otherwise be pinned to column 0 before shrinking.
+        const frame = clampFrame({ x: (i % 4) * 3, y: start + Math.floor(i / 4) * 2, w: GRID_COLUMNS / 4, h: 2 });
+        blocks.push({ ...createBlock(type, frame), ...frame });
       }
       dispatch({ type: 'add', blocks });
       notify('info', `Added ${count} blocks.`);
@@ -48,7 +60,9 @@ export function createCommands(store: BuilderStore) {
     },
 
     remove: (id: string) => dispatch({ type: 'delete', id }),
-    duplicate: (id: string) => dispatch({ type: 'duplicate', id, newId: createId() }),
+    duplicate(id: string) {
+      if (roomFor() > 0) dispatch({ type: 'duplicate', id, newId: createId() });
+    },
     reorder: (id: string, direction: ReorderDirection) => dispatch({ type: 'reorder', id, direction }),
     select: (id: string | null) => dispatch({ type: 'select', id }),
     undo: () => dispatch({ type: 'undo' }),

@@ -1,4 +1,5 @@
 import type { Block, Layout } from '../types/block';
+import { MAX_BLOCKS } from '../utils/constants';
 import { clampFrame, emptyLayout } from '../utils/helpers';
 import { sanitizeProps } from '../utils/validate';
 import type { LayoutAction, ReorderDirection } from './actions';
@@ -12,11 +13,14 @@ import type { LayoutAction, ReorderDirection } from './actions';
 export function layoutReducer(layout: Layout, action: LayoutAction): Layout {
   switch (action.type) {
     case 'add': {
-      if (action.blocks.length === 0) return layout;
+      // The block limit is enforced here, not only on import, so the store can
+      // never hold a layout that parseLayout would refuse to load back.
+      const room = MAX_BLOCKS - layout.order.length;
+      const incoming = action.blocks.filter((b) => !layout.blocks[b.id]).slice(0, Math.max(0, room));
+      if (incoming.length === 0) return layout;
       const blocks = { ...layout.blocks };
       const order = [...layout.order];
-      for (const block of action.blocks) {
-        if (blocks[block.id]) continue;
+      for (const block of incoming) {
         blocks[block.id] = block;
         order.push(block.id);
       }
