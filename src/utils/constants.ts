@@ -16,3 +16,6 @@ export const RADIUS = { min: 0, max: 48 };
 
 export const STORAGE_KEY = 'dnd-builder:layout';
 export const HISTORY_LIMIT = 100;
+
+/** Custom drag type so the canvas only accepts drops that started in the palette. */
+export const PALETTE_MIME = 'application/x-dnd-builder-block';
